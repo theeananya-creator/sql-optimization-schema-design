@@ -1,0 +1,75 @@
+{
+ "queries": [
+  {
+   "name": "Q1 Look up one customer's orders",
+   "bad": "SELECT * FROM orders_flat WHERE customer_email = ?",
+   "good": "SELECT o.order_id, o.order_date, o.status, o.total_amount FROM customers c JOIN orders o ON o.customer_id = c.customer_id WHERE c.email = ?",
+   "t_bad": 19.43,
+   "t_good": 0.006,
+   "rows_bad": 7,
+   "rows_good": 2,
+   "plan_bad": [
+    "SCAN orders_flat"
+   ],
+   "plan_good": [
+    "SEARCH c USING COVERING INDEX ux_customers_email (email=?)",
+    "SEARCH o USING INDEX ix_orders_customer (customer_id=?)"
+   ]
+  },
+  {
+   "name": "Q2 Revenue for calendar year 2024",
+   "bad": "SELECT COUNT(*), SUM(unit_price*quantity) FROM orders_flat WHERE strftime('%Y', order_date) = '2024'",
+   "good": "SELECT COUNT(*), SUM(total_amount) FROM orders WHERE order_date >= '2024-01-01' AND order_date < '2025-01-01'",
+   "t_bad": 61.79,
+   "t_good": 1.062,
+   "rows_bad": 1,
+   "rows_good": 1,
+   "plan_bad": [
+    "SCAN orders_flat"
+   ],
+   "plan_good": [
+    "SEARCH orders USING COVERING INDEX ix_orders_date_amt (order_date>? AND order_date<?)"
+   ]
+  },
+  {
+   "name": "Q3 Top 10 customers by spend",
+   "bad": "SELECT customer_email, SUM(unit_price*quantity) s FROM orders_flat GROUP BY customer_email ORDER BY s DESC LIMIT 10",
+   "good": "SELECT customer_id, SUM(total_amount) s FROM orders GROUP BY customer_id ORDER BY s DESC LIMIT 10",
+   "t_bad": 147.14,
+   "t_good": 8.792,
+   "rows_bad": 10,
+   "rows_good": 10,
+   "plan_bad": [
+    "SCAN orders_flat",
+    "USE TEMP B-TREE FOR GROUP BY",
+    "USE TEMP B-TREE FOR ORDER BY"
+   ],
+   "plan_good": [
+    "SCAN orders USING COVERING INDEX ix_orders_customer",
+    "USE TEMP B-TREE FOR ORDER BY"
+   ]
+  },
+  {
+   "name": "Q4 Deep pagination (page 2,500)",
+   "bad": "SELECT * FROM orders_flat ORDER BY order_date DESC, row_id DESC LIMIT 20 OFFSET 50000",
+   "good": "SELECT order_id, order_date, status FROM orders WHERE (order_date, order_id) < (?, ?) ORDER BY order_date DESC, order_id DESC LIMIT 20",
+   "t_bad": 393.06,
+   "t_good": 0.029,
+   "rows_bad": 20,
+   "rows_good": 20,
+   "plan_bad": [
+    "SCAN orders_flat",
+    "USE TEMP B-TREE FOR ORDER BY"
+   ],
+   "plan_good": [
+    "SEARCH orders USING INDEX ix_orders_date (order_date<?)"
+   ]
+  }
+ ],
+ "flat_rows": 300150,
+ "n_cust": 20000,
+ "n_orders": 100000,
+ "q1_flat_index": 0.017,
+ "size_flat_mb": 38.2,
+ "size_norm_mb": 13.4
+}
